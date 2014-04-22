@@ -17,19 +17,66 @@
  */
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
-
+void echo(int connfd);
+void readStuff(int connfd, char * buf, int endCharLength);
+void writeStuff(int connfd, char * buf);
+#define ENDREQUEST 2
+#define ENDRESPONSE 0
 /* 
  * main - Main routine for the proxy program 
  */
 int main(int argc, char **argv)
 {
-
+	int listenfd, connfd, proxyPort, clientlen;
+	int serverfd, serverPort;
+	struct sockaddr_in clientaddr;
+	struct hostent *hp;
+	char * haddrp;
+	char uri[MAXLINE];
+	char hostname[MAXLINE];
+	char pathname[MAXLINE];
+	char method[MAXLINE];
+	struct in_addr * inAddr;
+	char reqBuf[MAXLINE];
+	char respBuf[MAXLINE];	
     /* Check arguments */
-    if (argc != 2) {
-	fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
-	exit(0);
+    if (argc != 2) 
+	{
+		fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
+		exit(0);
     }
+	proxyPort = atoi(argv[1]);
 
+	/* Open a socket */
+	listenfd = Open_listenfd(proxyPort);
+
+	/* Listen for request */
+	while(1)
+	{
+		clientlen = sizeof(clientaddr);
+		/* Accept the incoming connection on listenfd */
+		connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
+		/* Read request into reqBuf */ 
+		readStuff(connfd, reqBuf, ENDREQUEST);
+		/* Parse reqBuf to get uri */
+		printf("reqBuf: %s", reqBuf);
+		sscanf(reqBuf, "%s %s", method, uri);
+		printf("URI: %s\n", uri);
+		/* Parse uri into host, path and port */
+		parse_uri(uri, hostname, pathname, &serverPort);
+		if(strlen(hostname) <= 0)
+			continue;
+		/* Connect to socket on server denoted by hostname */
+		serverfd = Open_clientfd(hostname, serverPort);
+		printf("HOST: %s\t PATH: %s\t PORT: %d\n", hostname, pathname, serverPort);
+		writeStuff(serverfd, reqBuf);
+		readStuff(serverfd, respBuf, ENDRESPONSE);
+		printf("RESPBUF: %s\n", respBuf);
+		Close(serverfd);
+		/* Check for disallowed words */
+		writeStuff(connfd, respBuf);
+		Close(connfd);
+	}
     exit(0);
 }
 
@@ -115,4 +162,47 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
     sprintf(logstring, "%s: %d.%d.%d.%d %s", time_str, a, b, c, d, uri);
 }
 
+/**
+ * echo - output the contents of a file.
+ *
+ * connfd - socket file descriptor. 
+ * 
+ */
+void echo(int connfd)
+{
+	size_t n;
+	char buf[MAXLINE];
+	rio_t rio;
 
+	Rio_readinitb(&rio, connfd);
+	while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0)
+	{
+		printf("Proxy received %d bytes\n", n);
+		printf("BUF: %s\n", buf);
+		Rio_writen(connfd, buf, n);
+	}
+}
+
+void readStuff(int connfd, char * buf, int endCharLength)
+{
+	size_t n;
+	int totalBytes = 0;
+	rio_t rio;
+	Rio_readinitb(&rio, connfd);
+	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXLINE)) > endCharLength)
+	{
+		totalBytes += n;
+		if(totalBytes > MAXLINE)
+		{
+			printf("You have overrun your buffer.");
+			exit(-1);
+		}
+		//printf("BUF: %s", buf);
+	}
+}
+
+void writeStuff(int connfd, char * buf)
+{
+	//printf("STRLEN: %d", strlen(buf));
+	Rio_writen(connfd, buf, strlen(buf));
+}

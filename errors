@@ -1,0 +1,33 @@
+proxy.c: In function ‘main’:
+proxy.c:51:3: warning: pointer targets in passing argument 3 of ‘Accept’ differ in signedness [-Wpointer-sign]
+csapp.h:123:5: note: expected ‘socklen_t *’ but argument is of type ‘int *’
+proxy.c:53:3: warning: implicit declaration of function ‘readStuff’ [-Wimplicit-function-declaration]
+proxy.c:55:18: warning: character constant too long for its type [enabled by default]
+proxy.c:55:3: warning: passing argument 2 of ‘sscanf’ makes pointer from integer without a cast [enabled by default]
+/usr/include/stdio.h:454:12: note: expected ‘const char * __restrict__’ but argument is of type ‘int’
+proxy.c:57:3: warning: passing argument 1 of ‘parse_uri’ makes pointer from integer without a cast [enabled by default]
+proxy.c:18:5: note: expected ‘char *’ but argument is of type ‘char’
+proxy.c:57:3: warning: passing argument 2 of ‘parse_uri’ makes pointer from integer without a cast [enabled by default]
+proxy.c:18:5: note: expected ‘char *’ but argument is of type ‘char’
+proxy.c:57:3: warning: passing argument 3 of ‘parse_uri’ makes pointer from integer without a cast [enabled by default]
+proxy.c:18:5: note: expected ‘char *’ but argument is of type ‘char’
+proxy.c:57:3: warning: passing argument 4 of ‘parse_uri’ makes pointer from integer without a cast [enabled by default]
+proxy.c:18:5: note: expected ‘int *’ but argument is of type ‘int’
+proxy.c:59:3: warning: passing argument 1 of ‘Open_clientfd’ makes pointer from integer without a cast [enabled by default]
+csapp.h:164:5: note: expected ‘char *’ but argument is of type ‘char’
+proxy.c:60:3: warning: implicit declaration of function ‘sendRequest’ [-Wimplicit-function-declaration]
+proxy.c:61:31: error: expected ‘)’ before ‘;’ token
+proxy.c:64:2: error: expected ‘;’ before ‘}’ token
+proxy.c:32:19: warning: unused variable ‘inAddr’ [-Wunused-variable]
+proxy.c:31:9: warning: unused variable ‘haddrp’ [-Wunused-variable]
+proxy.c:30:18: warning: unused variable ‘hp’ [-Wunused-variable]
+proxy.c: In function ‘echo’:
+proxy.c:166:3: warning: format ‘%d’ expects argument of type ‘int’, but argument 2 has type ‘size_t’ [-Wformat]
+proxy.c: At top level:
+proxy.c:172:6: warning: conflicting types for ‘readStuff’ [enabled by default]
+proxy.c:53:3: note: previous implicit declaration of ‘readStuff’ was here
+proxy.c:190:6: warning: conflicting types for ‘sendRequest’ [enabled by default]
+proxy.c:60:3: note: previous implicit declaration of ‘sendRequest’ was here
+proxy.c: In function ‘sendRequest’:
+proxy.c:192:2: warning: format ‘%d’ expects argument of type ‘int’, but argument 2 has type ‘size_t’ [-Wformat]
+make: *** [proxy.o] Error 1
