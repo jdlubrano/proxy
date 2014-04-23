@@ -17,10 +17,10 @@
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
 void echo(int connfd);
-void readStuff(int connfd, char * buf, int endCharLength);
+void readStuff(int connfd, char * buf, int readType);
 void writeStuff(int connfd, char * buf);
-#define ENDREQUEST 2
-#define ENDRESPONSE 0
+#define REQUEST 1
+#define RESPONSE 0
 #define MAXNET 65536
 /* 
  * main - Main routine for the proxy program 
@@ -31,19 +31,16 @@ int main(int argc, char **argv)
 	int listenfd, connfd, proxyPort, clientlen;
 	int serverfd, serverPort;
 	struct sockaddr_in clientaddr;
-	struct hostent *hp;
-	char * haddrp;
 	char uri[MAXLINE];
 	char hostname[MAXLINE];
 	char pathname[MAXLINE];
 	char method[MAXLINE];
-	struct in_addr * inAddr;
 	char reqBuf[MAXNET];
 	char respBuf[MAXNET];
 	char word[MAXLINE];
 	char ** disallowedWords;
 	FILE * disAllowedWordsFile;  
-    	/* Check arguments */
+   	/* Check arguments */
 	if (argc != 2) 
 	{
 		fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
@@ -93,7 +90,7 @@ int main(int argc, char **argv)
 		/* Accept the incoming connection on listenfd */
 		connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
 		/* Read request into reqBuf */ 
-		readStuff(connfd, reqBuf, ENDREQUEST);
+		readStuff(connfd, reqBuf, REQUEST);
 		/* Parse reqBuf to get uri */
 		sscanf(reqBuf, "%s %s", method, uri);
 		/* Parse uri into host, path and port */
@@ -105,7 +102,7 @@ int main(int argc, char **argv)
 		/* Write request to server */
 		writeStuff(serverfd, reqBuf);
 		/* Read response from server */
-		readStuff(serverfd, respBuf, ENDRESPONSE);
+		readStuff(serverfd, respBuf, RESPONSE);
 		/* Check for disAllowed Words */
 		i = 0;
 		int foundDisallowed = 0;
@@ -230,15 +227,19 @@ void echo(int connfd)
 	}
 }
 
-void readStuff(int connfd, char * buf, int endCharLength)
+void readStuff(int connfd, char * buf, int readType)
 {
 	size_t n;
 	int totalBytes = 0;
 	rio_t rio;
 	Rio_readinitb(&rio, connfd);
-	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXNET)) > endCharLength)
+	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXNET)) > readType)
 	{
 		printf("\nn: %d\n", n);
+		if(readType == RESPONSE && strstr(&buf[totalBytes], "</html>") != NULL)
+			break;
+		else if(readType == REQUEST && strcmp(&buf[totalBytes], "\r\n") == 0)
+			break;
 		totalBytes += n;
 		printf("totalBytes: %d\n", totalBytes);
 		if(totalBytes > MAXNET)
@@ -248,10 +249,12 @@ void readStuff(int connfd, char * buf, int endCharLength)
 		}
 	}
 	printf("READSTUFF:\n %s\n", buf);
+	fflush(stdout);
 }
 
 void writeStuff(int connfd, char * buf)
 {
 	printf("WRITESTUFF:\n %s\n", buf);
+	fflush(stdout);
 	Rio_writen(connfd, buf, strlen(buf));
 }
