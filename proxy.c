@@ -11,7 +11,6 @@
  */ 
 
 #include "csapp.h"
-
 /*
  * Function prototypes
  */
@@ -22,9 +21,11 @@ void readStuff(int connfd, char * buf, int endCharLength);
 void writeStuff(int connfd, char * buf);
 #define ENDREQUEST 2
 #define ENDRESPONSE 0
+#define MAXNET 65536
 /* 
  * main - Main routine for the proxy program 
  */
+static char * disallowedPage = "<html><head></head><body><p>This page has disallowed content.</p></body></html>";
 int main(int argc, char **argv)
 {
 	int listenfd, connfd, proxyPort, clientlen;
@@ -37,14 +38,49 @@ int main(int argc, char **argv)
 	char pathname[MAXLINE];
 	char method[MAXLINE];
 	struct in_addr * inAddr;
-	char reqBuf[MAXLINE];
-	char respBuf[MAXLINE];	
-    /* Check arguments */
-    if (argc != 2) 
+	char reqBuf[MAXNET];
+	char respBuf[MAXNET];
+	char word[MAXLINE];
+	char ** disallowedWords;
+	FILE * disAllowedWordsFile;  
+    	/* Check arguments */
+	if (argc != 2) 
 	{
 		fprintf(stderr, "Usage: %s <port number>\n", argv[0]);
 		exit(0);
-    }
+	}
+	/* Initialize disAllowedWords from file */
+	if((disAllowedWordsFile = fopen("DisallowedWords", "r")) == NULL)
+	{
+		perror("COULD NOT OPEN DisallowedWords");
+		exit(-1);
+	}
+	int i = 0;
+	char * newLine;
+	while(fgets(word, MAXLINE, disAllowedWordsFile) != NULL)
+	{
+		/* Count number of lines in file */
+		i++;
+	}
+	disallowedWords = malloc(sizeof(char *) * i);
+	if(disallowedWords == NULL)
+		perror("Out of memory.");
+	i = 0;
+	if(fseek(disAllowedWordsFile, 0, SEEK_SET) != 0)
+		perror("FSEEK");
+	while(fgets(word, MAXLINE, disAllowedWordsFile) != NULL)
+	{
+		/* Remove newlines from disAllowedWords */
+		newLine = strchr(word, '\n');
+		*newLine = '\0';
+		disallowedWords[i] = malloc(sizeof(word));
+		strncpy(disallowedWords[i], word, sizeof(word));
+		i++;
+	}
+	/* Set NULL sentinel at the end of disAllowedWords array */
+	disallowedWords[i] = NULL;
+	fclose(disAllowedWordsFile);
+
 	proxyPort = atoi(argv[1]);
 
 	/* Open a socket */
@@ -59,25 +95,36 @@ int main(int argc, char **argv)
 		/* Read request into reqBuf */ 
 		readStuff(connfd, reqBuf, ENDREQUEST);
 		/* Parse reqBuf to get uri */
-		printf("reqBuf: %s", reqBuf);
 		sscanf(reqBuf, "%s %s", method, uri);
-		printf("URI: %s\n", uri);
 		/* Parse uri into host, path and port */
 		parse_uri(uri, hostname, pathname, &serverPort);
 		if(strlen(hostname) <= 0)
 			continue;
 		/* Connect to socket on server denoted by hostname */
 		serverfd = Open_clientfd(hostname, serverPort);
-		printf("HOST: %s\t PATH: %s\t PORT: %d\n", hostname, pathname, serverPort);
+		/* Write request to server */
 		writeStuff(serverfd, reqBuf);
+		/* Read response from server */
 		readStuff(serverfd, respBuf, ENDRESPONSE);
-		printf("RESPBUF: %s\n", respBuf);
+		/* Check for disAllowed Words */
+		i = 0;
+		int foundDisallowed = 0;
+		while(disallowedWords[i] != NULL && !foundDisallowed)
+		{
+			if(strstr(reqBuf, disallowedWords[i]) != NULL)
+			{
+				writeStuff(connfd, disallowedPage);
+				foundDisallowed = 1;
+			}
+			i++;
+		}
+		/* Close server connection */
 		Close(serverfd);
 		/* Check for disallowed words */
 		writeStuff(connfd, respBuf);
 		Close(connfd);
 	}
-    exit(0);
+    	exit(0);
 }
 
 
@@ -189,20 +236,22 @@ void readStuff(int connfd, char * buf, int endCharLength)
 	int totalBytes = 0;
 	rio_t rio;
 	Rio_readinitb(&rio, connfd);
-	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXLINE)) > endCharLength)
+	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXNET)) > endCharLength)
 	{
+		printf("\nn: %d\n", n);
 		totalBytes += n;
-		if(totalBytes > MAXLINE)
+		printf("totalBytes: %d\n", totalBytes);
+		if(totalBytes > MAXNET)
 		{
 			printf("You have overrun your buffer.");
 			exit(-1);
 		}
-		//printf("BUF: %s", buf);
 	}
+	printf("READSTUFF:\n %s\n", buf);
 }
 
 void writeStuff(int connfd, char * buf)
 {
-	//printf("STRLEN: %d", strlen(buf));
+	printf("WRITESTUFF:\n %s\n", buf);
 	Rio_writen(connfd, buf, strlen(buf));
 }
