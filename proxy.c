@@ -17,8 +17,9 @@
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
 void echo(int connfd);
-void readStuff(int connfd, char * buf, int readType);
-void writeStuff(int connfd, char * buf);
+int readRequest(int connfd, char * buf);
+int readResponse(int connfd, char * buf);
+void writeStuff(int connfd, char * buf, int contentLength);
 #define REQUEST 1
 #define RESPONSE 0
 #define MAXNET 65536
@@ -29,7 +30,7 @@ static char * disallowedPage = "<html><head></head><body><p>This page has disall
 int main(int argc, char **argv)
 {
 	int listenfd, connfd, proxyPort, clientlen;
-	int serverfd, serverPort;
+	int serverfd, serverPort, reqLen, respLen;
 	struct sockaddr_in clientaddr;
 	char uri[MAXLINE];
 	char hostname[MAXLINE];
@@ -90,7 +91,7 @@ int main(int argc, char **argv)
 		/* Accept the incoming connection on listenfd */
 		connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
 		/* Read request into reqBuf */ 
-		readStuff(connfd, reqBuf, REQUEST);
+		reqLen = readRequest(connfd, reqBuf);
 		/* Parse reqBuf to get uri */
 		sscanf(reqBuf, "%s %s", method, uri);
 		/* Parse uri into host, path and port */
@@ -100,25 +101,27 @@ int main(int argc, char **argv)
 		/* Connect to socket on server denoted by hostname */
 		serverfd = Open_clientfd(hostname, serverPort);
 		/* Write request to server */
-		writeStuff(serverfd, reqBuf);
+		writeStuff(serverfd, reqBuf, reqLen);
 		/* Read response from server */
-		readStuff(serverfd, respBuf, RESPONSE);
+		respLen = readResponse(serverfd, respBuf);
 		/* Check for disAllowed Words */
+		/* Close server connection */
+		Close(serverfd);
+		/* Check for disallowed words */
 		i = 0;
 		int foundDisallowed = 0;
 		while(disallowedWords[i] != NULL && !foundDisallowed)
 		{
-			if(strstr(reqBuf, disallowedWords[i]) != NULL)
+			printf("SEARCHING DISALLOWED\n");
+			if(strstr(respBuf, disallowedWords[i]) != NULL)
 			{
-				writeStuff(connfd, disallowedPage);
+				writeStuff(connfd, disallowedPage, sizeof(disallowedPage));
 				foundDisallowed = 1;
 			}
 			i++;
 		}
-		/* Close server connection */
-		Close(serverfd);
-		/* Check for disallowed words */
-		writeStuff(connfd, respBuf);
+		if(!foundDisallowed)
+			writeStuff(connfd, respBuf, respLen);
 		Close(connfd);
 	}
     	exit(0);
@@ -227,21 +230,42 @@ void echo(int connfd)
 	}
 }
 
-void readStuff(int connfd, char * buf, int readType)
+int readRequest(int connfd, char * buf)
 {
 	size_t n;
 	int totalBytes = 0;
 	rio_t rio;
 	Rio_readinitb(&rio, connfd);
-	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXNET)) > readType)
+	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXLINE)) > 0)
 	{
-		printf("\nn: %d\n", n);
-		if(readType == RESPONSE && strstr(&buf[totalBytes], "</html>") != NULL)
+		if(strcmp(&buf[totalBytes], "\r\n") == 0)
+		{
+			totalBytes += n;
 			break;
-		else if(readType == REQUEST && strcmp(&buf[totalBytes], "\r\n") == 0)
-			break;
+		}
 		totalBytes += n;
-		printf("totalBytes: %d\n", totalBytes);
+		if(totalBytes > MAXLINE)
+		{
+			printf("You have overrun your buffer");
+			exit(-1);
+		}
+	}
+	printf("READREQUEST:\n %s\n", buf);
+	return totalBytes;
+}
+
+int readResponse(int connfd, char * buf)
+{
+	size_t n;
+	int totalBytes = 0;
+	rio_t rio;
+	Rio_readinitb(&rio, connfd);
+	while((n = Rio_readnb(&rio, &buf[totalBytes], MAXNET)) > 0)
+	{
+		/*
+		if(strstr(&buf[totalBytes], "</html>") != NULL)
+			break;*/
+		totalBytes += n;
 		if(totalBytes > MAXNET)
 		{
 			printf("You have overrun your buffer.");
@@ -250,11 +274,12 @@ void readStuff(int connfd, char * buf, int readType)
 	}
 	printf("READSTUFF:\n %s\n", buf);
 	fflush(stdout);
+	return totalBytes;
 }
 
-void writeStuff(int connfd, char * buf)
+void writeStuff(int connfd, char * buf, int contentLength)
 {
 	printf("WRITESTUFF:\n %s\n", buf);
 	fflush(stdout);
-	Rio_writen(connfd, buf, strlen(buf));
+	Rio_writen(connfd, buf, contentLength);
 }
