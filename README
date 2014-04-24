@@ -1,12 +1,12 @@
-****************
-CS:APP Proxy Lab
-****************
+*********************
+CS-485 Proxy Project
+Joel Lubrano
+Katie Taylor
+*********************
 
 Makefile	- For building and handing in proxy
 README		- This file
 
 # Proxy source files
-proxy.{c,h}	- Primary proxy code
+proxy.{c,h}	- Primary proxy code (Augmented by Joel Lubrano and Katie Taylor Apr. 2014)
 csapp.{c,h}	- Wrapper and helper functions from the CS:APP text
-
-
