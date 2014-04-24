@@ -15,9 +15,9 @@
  * Function prototypes
  */
 int parse_uri(char *uri, char *target_addr, char *path, int  *port);
-void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, char *uri, int size);
+void format_log_entry(FILE * proxyLog, struct sockaddr_in *sockaddr, char *uri, int size, int blocked);
 void echo(int connfd);
-int readRequest(int connfd, char * buf);
+int readRequest(int connfd, char * buf, int contentLength);
 int readResponse(int connfd, char * buf);
 void writeStuff(int connfd, char * buf, int contentLength);
 #define REQUEST 1
@@ -26,11 +26,20 @@ void writeStuff(int connfd, char * buf, int contentLength);
 /* 
  * main - Main routine for the proxy program 
  */
-static char * disallowedPage = "<html><head></head><body><p>This page has disallowed content.</p></body></html>";
+static char * disallowedPage = "HTTP/1.1 200 OK\n"
+								"Content-Length: 83\n"
+								"Content-Type: text/html\n"
+								"\n"
+								"<!DOCTYPE html>"
+									"<head></head>"
+									"<body>"
+										"<h1>This page has disallowed content.</h1>"
+									"</body>"
+								"</html>";
 int main(int argc, char **argv)
 {
 	int listenfd, connfd, proxyPort, clientlen;
-	int serverfd, serverPort, reqLen, respLen;
+	int serverfd, serverPort, reqLen, respLen, contLen;
 	struct sockaddr_in clientaddr;
 	char uri[MAXLINE];
 	char hostname[MAXLINE];
@@ -39,8 +48,10 @@ int main(int argc, char **argv)
 	char reqBuf[MAXNET];
 	char respBuf[MAXNET];
 	char word[MAXLINE];
+	char * contentLength;
 	char ** disallowedWords;
-	FILE * disAllowedWordsFile;  
+	FILE * disAllowedWordsFile;
+  	FILE * proxyLog;	
    	/* Check arguments */
 	if (argc != 2) 
 	{
@@ -78,7 +89,12 @@ int main(int argc, char **argv)
 	/* Set NULL sentinel at the end of disAllowedWords array */
 	disallowedWords[i] = NULL;
 	fclose(disAllowedWordsFile);
-
+	/* Open proxy.log */
+	if((proxyLog = fopen("proxy.log", "w+")) == NULL)
+	{
+		perror("COULD NOT OPEN proxy.log");
+		exit(-1);
+	}
 	proxyPort = atoi(argv[1]);
 
 	/* Open a socket */
@@ -91,11 +107,21 @@ int main(int argc, char **argv)
 		/* Accept the incoming connection on listenfd */
 		connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
 		/* Read request into reqBuf */ 
-		reqLen = readRequest(connfd, reqBuf);
+		reqLen = readRequest(connfd, reqBuf, 0);
 		/* Parse reqBuf to get uri */
 		sscanf(reqBuf, "%s %s", method, uri);
+		/* If request is a PUT or POST, fetch the body of the request */
+		if(strcmp(method, "PUT") == 0 || strcmp(method, "POST") == 0)
+		{
+			/* Find Content-Length in reqBuf */
+			contentLength = strstr(reqBuf, "Content-Length: ");
+			sscanf(contentLength, "%*s %d", &contLen);
+			strcat(reqBuf, "\r\n");
+			reqLen += readRequest(connfd, &reqBuf[strlen(reqBuf) - 1], contLen);
+		}
 		/* Parse uri into host, path and port */
 		parse_uri(uri, hostname, pathname, &serverPort);
+		/* Passover hosts that fail to be parsed by the parse_uri function */
 		if(strlen(hostname) <= 0)
 			continue;
 		/* Connect to socket on server denoted by hostname */
@@ -112,10 +138,9 @@ int main(int argc, char **argv)
 		int foundDisallowed = 0;
 		while(disallowedWords[i] != NULL && !foundDisallowed)
 		{
-			printf("SEARCHING DISALLOWED\n");
 			if(strstr(respBuf, disallowedWords[i]) != NULL)
 			{
-				writeStuff(connfd, disallowedPage, sizeof(disallowedPage));
+				writeStuff(connfd, disallowedPage, strlen(disallowedPage));
 				foundDisallowed = 1;
 			}
 			i++;
@@ -123,8 +148,12 @@ int main(int argc, char **argv)
 		if(!foundDisallowed)
 			writeStuff(connfd, respBuf, respLen);
 		Close(connfd);
+		/* Write to proxy.log */
+		format_log_entry(proxyLog, &clientaddr, uri, respLen, foundDisallowed);
+		fflush(proxyLog);
 	}
-    	exit(0);
+	fclose(proxyLog);
+    exit(0);
 }
 
 
@@ -180,14 +209,13 @@ int parse_uri(char *uri, char *hostname, char *pathname, int *port)
  * (sockaddr), the URI from the request (uri), and the size in bytes
  * of the response from the server (size).
  */
-void format_log_entry(char *logstring, struct sockaddr_in *sockaddr, 
-		      char *uri, int size)
+void format_log_entry(FILE * proxyLog, struct sockaddr_in *sockaddr, 
+		      char *uri, int size, int blocked)
 {
     time_t now;
     char time_str[MAXLINE];
     unsigned long host;
     unsigned char a, b, c, d;
-
     /* Get a formatted time string */
     now = time(NULL);
     strftime(time_str, MAXLINE, "%a %d %b %Y %H:%M:%S %Z", localtime(&now));
@@ -204,9 +232,24 @@ void format_log_entry(char *logstring, struct sockaddr_in *sockaddr,
     c = (host >> 8) & 0xff;
     d = host & 0xff;
 
+	int bytesWritten;
+    /* Write the formatted log entry string to logfile */
+	if(size == 0)
+	{
+		bytesWritten = fprintf(proxyLog, "%s: %d.%d.%d.%d %s NOTFOUND\n", time_str, a, b, c, d, uri);
+		return;
+	}
+	if(blocked)	
+    	bytesWritten = fprintf(proxyLog, "%s: %d.%d.%d.%d %s %d (BLOCKED: Page has disallowed words)\n", time_str, a, b, c, d, uri, size);
+	else
+		bytesWritten = fprintf(proxyLog, "%s: %d.%d.%d.%d %s %d\n", time_str, a, b, c, d, uri, size);
 
-    /* Return the formatted log entry string */
-    sprintf(logstring, "%s: %d.%d.%d.%d %s", time_str, a, b, c, d, uri);
+	if(!bytesWritten)
+	{
+		perror("COULD NOT WRITE TO proxy.log");
+		exit(-1);
+	}else
+		return;
 }
 
 /**
@@ -224,19 +267,19 @@ void echo(int connfd)
 	Rio_readinitb(&rio, connfd);
 	while((n = Rio_readlineb(&rio, buf, MAXLINE)) != 0)
 	{
-		printf("Proxy received %d bytes\n", n);
-		printf("BUF: %s\n", buf);
 		Rio_writen(connfd, buf, n);
 	}
 }
 
-int readRequest(int connfd, char * buf)
+int readRequest(int connfd, char * buf, int contentLength)
 {
 	size_t n;
 	int totalBytes = 0;
 	rio_t rio;
 	Rio_readinitb(&rio, connfd);
-	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXLINE)) > 0)
+	/* Set maximum number of bytes to read */
+	contentLength = (contentLength ? contentLength : MAXLINE);
+	while((n = Rio_readlineb(&rio, &buf[totalBytes], MAXLINE)) > 0 && totalBytes <= contentLength)
 	{
 		if(strcmp(&buf[totalBytes], "\r\n") == 0)
 		{
@@ -250,7 +293,6 @@ int readRequest(int connfd, char * buf)
 			exit(-1);
 		}
 	}
-	printf("READREQUEST:\n %s\n", buf);
 	return totalBytes;
 }
 
@@ -272,14 +314,10 @@ int readResponse(int connfd, char * buf)
 			exit(-1);
 		}
 	}
-	printf("READSTUFF:\n %s\n", buf);
-	fflush(stdout);
 	return totalBytes;
 }
 
 void writeStuff(int connfd, char * buf, int contentLength)
 {
-	printf("WRITESTUFF:\n %s\n", buf);
-	fflush(stdout);
 	Rio_writen(connfd, buf, contentLength);
 }

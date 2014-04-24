@@ -16,5 +16,5 @@ proxy.o: proxy.c
 	$(CC) $(CFLAGS) -c -g proxy.c
 
 clean:
-	rm -f *~ *.o proxy core
+	rm -f *~ *.o proxy core *.log
 
