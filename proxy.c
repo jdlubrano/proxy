@@ -129,7 +129,6 @@ int main(int argc, char **argv)
 		connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
 		/* Read request into reqBuf */ 
 		reqLen = readRequest(connfd, reqBuf, 0);
-		printf("REQ BUF AFTER READ: %s\n", reqBuf);
 		/* Parse reqBuf to get uri */
 		sscanf(reqBuf, "%s %s", method, uri);
 		/* If request is a PUT or POST, fetch the body of the request */
@@ -150,10 +149,8 @@ int main(int argc, char **argv)
 		serverfd = Open_clientfd(hostname, serverPort);
 		/* Write request to server */
 		writeStuff(serverfd, reqBuf, reqLen);
-		printf("REQ BUF AFTER WRITE: %s\n", reqBuf);
 		/* Read response from server */
 		respLen = readResponse(serverfd, respBuf);
-		printf("RESP BUF AFTER READ: %s\n", respBuf->respContent);
 		/* Close server connection */
 		Close(serverfd);
 		/* Check for disallowed words */
@@ -170,7 +167,6 @@ int main(int argc, char **argv)
 		}
 		if(!foundDisallowed)
 			writeStuff(connfd, respBuf->respContent, respLen);
-		printf("RESP BUF AFTER WRITE: %s\n", respBuf->respContent);
 		/* Clear out respBuf->respContent */
 		memset(respBuf->respContent, '\0', respBuf->respCeiling); 
 		Close(connfd);
