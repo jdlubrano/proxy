@@ -10,3 +10,15 @@ README		- This file
 # Proxy source files
 proxy.{c,h}	- Primary proxy code (Augmented by Joel Lubrano and Katie Taylor Apr. 2014)
 csapp.{c,h}	- Wrapper and helper functions from the CS:APP text
+
+Known Shortcomings
+==================
+
+Fails to receive the body of POST requests sent through Firefox (works in telnet).
+
+Fails to timeout on certain requests made by browser to auxillary sites.
+For example requests to: http://safebrowsing.google.com...
+tend to hang and fail.
+
+Fails, at times, to detect the end of javascript source files that are requested as an asset
+for web pages with dynamic content.
