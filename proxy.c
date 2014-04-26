@@ -18,8 +18,16 @@ int parse_uri(char *uri, char *target_addr, char *path, int  *port);
 void format_log_entry(FILE * proxyLog, struct sockaddr_in *sockaddr, char *uri, int size, int blocked);
 void echo(int connfd);
 int readRequest(int connfd, char * buf, int contentLength);
-int readResponse(int connfd, char * buf);
 void writeStuff(int connfd, char * buf, int contentLength);
+
+typedef struct respBuf
+{
+	char * respContent;
+	int respCeiling;
+
+} RespBuf;
+
+int readResponse(int connfd, RespBuf * respBuf);
 #define REQUEST 1
 #define RESPONSE 0
 #define MAXNET 65536
@@ -46,7 +54,7 @@ int main(int argc, char **argv)
 	char pathname[MAXLINE];
 	char method[MAXLINE];
 	char reqBuf[MAXNET];
-	char respBuf[MAXNET];
+	RespBuf * respBuf;
 	char word[MAXLINE];
 	char * contentLength;
 	char ** disallowedWords;
@@ -100,6 +108,19 @@ int main(int argc, char **argv)
 	/* Open a socket */
 	listenfd = Open_listenfd(proxyPort);
 
+	/* Initialize respBuf struct */
+	if((respBuf = malloc(sizeof(RespBuf))) == NULL)
+	{
+		perror("Out of memory.");
+		exit(-1);
+	}
+	respBuf->respCeiling = MAXNET;
+	if((respBuf->respContent = malloc(MAXNET)) == NULL)
+	{
+		perror("Out of memory.");
+		exit(-1);
+	}
+
 	/* Listen for request */
 	while(1)
 	{
@@ -108,6 +129,7 @@ int main(int argc, char **argv)
 		connfd = Accept(listenfd, (SA *)&clientaddr, (socklen_t *) &clientlen);
 		/* Read request into reqBuf */ 
 		reqLen = readRequest(connfd, reqBuf, 0);
+		printf("REQ BUF AFTER READ: %s\n", reqBuf);
 		/* Parse reqBuf to get uri */
 		sscanf(reqBuf, "%s %s", method, uri);
 		/* If request is a PUT or POST, fetch the body of the request */
@@ -128,9 +150,10 @@ int main(int argc, char **argv)
 		serverfd = Open_clientfd(hostname, serverPort);
 		/* Write request to server */
 		writeStuff(serverfd, reqBuf, reqLen);
+		printf("REQ BUF AFTER WRITE: %s\n", reqBuf);
 		/* Read response from server */
 		respLen = readResponse(serverfd, respBuf);
-		/* Check for disAllowed Words */
+		printf("RESP BUF AFTER READ: %s\n", respBuf->respContent);
 		/* Close server connection */
 		Close(serverfd);
 		/* Check for disallowed words */
@@ -138,7 +161,7 @@ int main(int argc, char **argv)
 		int foundDisallowed = 0;
 		while(disallowedWords[i] != NULL && !foundDisallowed)
 		{
-			if(strstr(respBuf, disallowedWords[i]) != NULL)
+			if(strstr(respBuf->respContent, disallowedWords[i]) != NULL)
 			{
 				writeStuff(connfd, disallowedPage, strlen(disallowedPage));
 				foundDisallowed = 1;
@@ -146,13 +169,17 @@ int main(int argc, char **argv)
 			i++;
 		}
 		if(!foundDisallowed)
-			writeStuff(connfd, respBuf, respLen);
+			writeStuff(connfd, respBuf->respContent, respLen);
+		printf("RESP BUF AFTER WRITE: %s\n", respBuf->respContent);
+		/* Clear out respBuf->respContent */
+		memset(respBuf->respContent, '\0', respBuf->respCeiling); 
 		Close(connfd);
 		/* Write to proxy.log */
 		format_log_entry(proxyLog, &clientaddr, uri, respLen, foundDisallowed);
 		fflush(proxyLog);
 	}
 	fclose(proxyLog);
+	free(respBuf);
     exit(0);
 }
 
@@ -296,23 +323,37 @@ int readRequest(int connfd, char * buf, int contentLength)
 	return totalBytes;
 }
 
-int readResponse(int connfd, char * buf)
+int readResponse(int connfd, RespBuf * respBuf)
 {
 	size_t n;
 	int totalBytes = 0;
+	char buf[MAXNET];
 	rio_t rio;
 	Rio_readinitb(&rio, connfd);
-	while((n = Rio_readnb(&rio, &buf[totalBytes], MAXNET)) > 0)
+	while((n = Rio_readnb(&rio, buf, MAXNET)) > 0)
 	{
-		/*
-		if(strstr(&buf[totalBytes], "</html>") != NULL)
-			break;*/
 		totalBytes += n;
-		if(totalBytes > MAXNET)
+		while(totalBytes > respBuf->respCeiling)
 		{
-			printf("You have overrun your buffer.");
-			exit(-1);
+			/* Double size of respBuf */
+			char * temp;
+			if((temp = malloc(respBuf->respCeiling)) == NULL)
+			{
+				perror("Out of memory.");
+				exit(-1);
+			}
+			temp = respBuf->respContent;
+			respBuf->respCeiling *= 2;
+			if((respBuf->respContent = malloc(respBuf->respCeiling)) == NULL)
+			{
+				perror("Out of memory.");
+				exit(-1);
+			}
+			memcpy(respBuf->respContent, temp, respBuf->respCeiling/2);
+			free(temp);
 		}
+		/* Copy buf to the response struct */
+		memcpy(&(respBuf->respContent[totalBytes-n]), buf, n);
 	}
 	return totalBytes;
 }
